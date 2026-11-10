@@ -53,6 +53,8 @@ main{padding-bottom:96px}[hidden]{display:none!important}
 .donut{width:140px;height:140px;border-radius:50%;position:relative;flex:none}.donut:after{content:"";position:absolute;inset:28px;background:#fff;border-radius:50%}
 .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}
 .sy{font-size:12px;color:var(--mut)}.sy.off{color:var(--bad)}
+.pd{display:flex;justify-content:center;gap:12px;height:28px;margin:12px 0 4px;align-items:center}.pd i{width:14px;height:14px;border-radius:50%;border:2px solid var(--pri)}.pd i.f{background:var(--pri)}
+.kp{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0}.kp button{padding:16px 0;font:600 22px system-ui;border-radius:14px;border:1px solid var(--bd);background:#fff;color:var(--tx);cursor:pointer;touch-action:manipulation}.kp button:active{background:#e9ecf2}.kp button.pri{background:var(--pri);color:#fff;border-color:var(--pri)}
 </style>
 </head>
 <body>
@@ -101,13 +103,17 @@ function viewConfig(){set(`<div class="center card"><h2>Conectar con Supabase</h
 <p><button class="btn pri" onclick="saveCfg()">Guardar y continuar</button></p></div>`)}
 function saveCfg(){const u=$('#u').value.trim().replace(/\/$/,''),k=$('#k').value.trim();if(!u||!k)return;localStorage.setItem('pf_url',u);localStorage.setItem('pf_key',k);init()}
 function resetCfg(){localStorage.removeItem('pf_url');localStorage.removeItem('pf_key');location.reload()}
-function viewAuth(m=''){set(`<div class="center card"><h2>💑 Finanzas en pareja</h2>
-<label>PIN</label><input id="pw" type="password" inputmode="numeric" maxlength="8" autofocus placeholder="Tu PIN" onkeydown="if(event.key==='Enter')auth()">
-<p><button class="btn pri" onclick="auth()">Entrar</button></p>
+let PIN='';
+const pdHtml=()=>Array.from({length:Math.max(4,PIN.length)},(_,i)=>`<i class="${i<PIN.length?'f':''}"></i>`).join('');
+function kp(d){if(d==='<')PIN=PIN.slice(0,-1);else if(PIN.length<8)PIN+=d;const e=$('#pd');if(e)e.innerHTML=pdHtml()}
+document.addEventListener('keydown',e=>{if(!$('#pd'))return;if(/^\d$/.test(e.key))kp(e.key);else if(e.key==='Backspace')kp('<');else if(e.key==='Enter')auth()});
+function viewAuth(m=''){PIN='';set(`<div class="center card" style="text-align:center"><h2>💑 Finanzas en pareja</h2>
+<p class="mut" style="margin:0">Escribe tu PIN</p><div class="pd" id="pd">${pdHtml()}</div>
+<div class="kp">${[1,2,3,4,5,6,7,8,9].map(n=>`<button onclick="kp('${n}')">${n}</button>`).join('')}<button onclick="kp('<')">⌫</button><button onclick="kp('0')">0</button><button class="pri" onclick="auth()">✓</button></div>
 ${m?`<div class="msg">${esc(m)}</div>`:''}
 <p><a href="#" onclick="resetCfg();return false" class="mut">Cambiar conexión Supabase</a></p></div>`)}
 async function auth(signup){
-  const pin=$('#pw').value.trim();
+  const pin=PIN;
   if(!/^\d{4,8}$/.test(pin))return viewAuth('Escribe tu PIN (4 a 8 dígitos).');
   let last=null;
   for(const u of ['duvier','jesica']){
