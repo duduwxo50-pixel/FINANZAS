@@ -77,6 +77,7 @@ header{background:#f2f5fbcc;backdrop-filter:blur(8px);border:0}
 .hs>div{background:#ffffff24;border-radius:14px;padding:10px 12px;min-width:0}
 .hs small{display:block;color:#ffffffe0;font-size:13px}.hs b{display:block;font-size:clamp(20px,6.2vw,32px);color:#fff;letter-spacing:-.5px;white-space:nowrap}
 .ht{text-align:center;font-size:14px;color:#ffffffe6;margin:4px 0 14px}.ht b{color:#fff;font-size:17px}
+.goal{border:1px solid var(--bd);border-radius:14px;padding:12px;margin:10px 0}
 </style>
 </head>
 <body>
@@ -92,7 +93,7 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const KINDS={deuda:'Deuda / cuota',servicio:'Servicio',ahorro:'Ahorro / cadena',fijo:'Gasto fijo',variable:'Variable (presupuesto)'};
 const ymd=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 const today=new Date();
-let sb=null,S={user:null,hh:null,me:null,members:[],inc:[],rec:[],com:[],pay:[],exp:[],month:ymd(new Date(today.getFullYear(),today.getMonth(),1)),tab:'resumen',msg:''};
+let sb=null,S={user:null,hh:null,me:null,members:[],inc:[],rec:[],goals:[],gent:[],clos:[],com:[],pay:[],exp:[],month:ymd(new Date(today.getFullYear(),today.getMonth(),1)),tab:'resumen',msg:''};
 
 const DEF={url:'https://pmdkmizxgtncujijttbi.supabase.co',key:'sb_publishable_OPR5iz0QFo94GfiMLwvINQ_4ddlWE2Z'};
 function cfg(){return{url:localStorage.getItem('pf_url')||DEF.url,key:localStorage.getItem('pf_key')||DEF.key}}
@@ -112,9 +113,9 @@ async function boot(){
 }
 async function load(){
   const h=S.hh.id,q=t=>sb.from(t).select('*').eq('household_id',h);
-  const [m,i,c,p,e,rc]=await Promise.all([q('pf_members'),q('pf_incomes').order('owner'),q('pf_commitments').order('amount',{ascending:false}),q('pf_payments'),q('pf_expenses').order('spent_on',{ascending:false}),q('pf_income_receipts')]);
-  const bad=[m,i,c,p,e,rc].find(x=>x.error);if(bad)throw bad.error;
-  S.members=m.data||[];S.inc=i.data||[];S.com=c.data||[];S.pay=p.data||[];S.exp=e.data||[];S.rec=rc.data||[];
+  const [m,i,c,p,e,rc,gl,ge,cl]=await Promise.all([q('pf_members'),q('pf_incomes').order('owner'),q('pf_commitments').order('amount',{ascending:false}),q('pf_payments'),q('pf_expenses').order('spent_on',{ascending:false}),q('pf_income_receipts'),q('pf_goals').order('created_at'),q('pf_goal_entries'),q('pf_closings')]);
+  const bad=[m,i,c,p,e,rc,gl,ge,cl].find(x=>x.error);if(bad)throw bad.error;
+  S.members=m.data||[];S.inc=i.data||[];S.com=c.data||[];S.pay=p.data||[];S.exp=e.data||[];S.rec=rc.data||[];S.goals=gl.data||[];S.gent=ge.data||[];S.clos=cl.data||[];
 }
 const set=(v)=>{$('#app').innerHTML=v;$('#bnav').style.display='none'};
 
@@ -170,18 +171,18 @@ function calc(){
 const paidOf=(c,pays)=>pays.find(p=>p.commitment_id===c.id);
 
 /* ---------- render ---------- */
-const MENU=[['resumen','🏠','Inicio'],['compromisos','📋','Compromisos'],['ingresos','💰','Ingresos'],['consejos','💡','Consejos'],['variables','🛒','Gastos'],['ajustes','⚙️','Hogar']];
+const MENU=[['resumen','🏠','Inicio'],['compromisos','📋','Compromisos'],['ingresos','💰','Ingresos'],['consejos','💡','Consejos'],['variables','🛒','Gastos'],['metas','🎯','Metas'],['cierre','🗓️','Cierre'],['ajustes','⚙️','Hogar']];
 const hhmm=d=>d?d.toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'}):'';
 function render(){
   const mo=new Date(S.month+'T00:00').toLocaleDateString('es-CO',{month:'long',year:'numeric'});
   const C=calc();
-  S.bd={compromisos:C.fixed.filter(c=>!paidOf(c,C.pays)&&['late','today','soon'].includes(dueInfo(c).k)).length,ingresos:cobros(C).filter(x=>!x.r).length};
+  S.bd={compromisos:C.fixed.filter(c=>!paidOf(c,C.pays)&&['late','today','soon'].includes(dueInfo(c).k)).length,ingresos:cobros(C).filter(x=>!x.r).length,cierre:cierrePend()?1:0};
   set(`<header><h1>💑 ${esc(S.hh.name)}</h1>
 <div class="row" style="gap:4px"><button class="btn sm" onclick="mv(-1)">◀</button><b style="min-width:130px;text-align:center;text-transform:capitalize">${mo}</b><button class="btn sm" onclick="mv(1)">▶</button></div>
 <span><button class="btn sm" onclick="sync(true)" title="Sincronizar">${S.syncing?'⏳':'↻'}</button> <span class="sy ${S.off?'off':''}">${S.off?'sin conexión':'sincronizado '+hhmm(S.last)}</span></span></header>
 <main>${V[S.tab](C)}</main>`);
   $('#bnav').style.display='flex';
-  const n=S.bd.compromisos+S.bd.ingresos,b=$('#bn-b');b.hidden=!n;b.textContent=n;
+  const n=S.bd.compromisos+S.bd.ingresos+S.bd.cierre,b=$('#bn-b');b.hidden=!n;b.textContent=n;
 }
 async function sync(manual){
   if(!S.hh||S.syncing)return;S.syncing=true;if(manual)render();
@@ -215,7 +216,7 @@ resumen(C){const T=C.T;
   const groups=Object.keys(KINDS).map(k=>[KINDS[k],sum(C.com.filter(c=>c.kind===k))]).filter(g=>g[1]>0);
   const emp=!S.inc.length&&!S.com.length;
   return(emp?`<div class="card"><b>Aún no hay datos.</b> ¿Cargo tus ingresos y compromisos iniciales (carro, casa Jamundí, Addi, recibos, cadena, comida)?<p><button class="btn pri" onclick="seed()">Cargar datos iniciales</button></p></div>`:'')+
-  `<p><button class="btn pri" style="width:100%;padding:14px;font-size:16px;background:var(--ok);border-color:var(--ok)" onclick="quickExp()">＋ Registrar gasto</button></p><div class="card hero"><small>Hola, ${esc(S.me.display_name)} 👋 · Disponible hoy</small><div class="hs">${bal(C).map(x=>`<div><small>${esc(x.n)}</small><b>${fmt(x.v)}</b></div>`).join('')}</div><div class="ht">Entre los dos: <b>${fmt(T.disp)}</b></div>${prog('Cobrado',T.recS,T.ing)}${prog('Compromisos al día',T.paid,T.fix)}${prog('Gasto del mes (variables)',T.spent,T.bud)}<div style="margin-top:6px;font-size:13px;color:#ffffffe6">${T.libre>=0?'🌿 Tu plan deja '+fmt(T.libre)+' libres este mes':'🌱 Con un pequeño ajuste en variables, el mes cuadra'}</div>${T.disp<0?'<div style="margin-top:4px;font-size:12px;color:#ffffffc0">Tip: suma lo que ya recibiste o el saldo anterior para ver tu disponible real.</div>':''}</div>
+  `${cierreBanner()}<p><button class="btn pri" style="width:100%;padding:14px;font-size:16px;background:var(--ok);border-color:var(--ok)" onclick="quickExp()">＋ Registrar gasto</button></p><div class="card hero"><small>Hola, ${esc(S.me.display_name)} 👋 · Disponible hoy</small><div class="hs">${bal(C).map(x=>`<div><small>${esc(x.n)}</small><b>${fmt(x.v)}</b></div>`).join('')}</div><div class="ht">Entre los dos: <b>${fmt(T.disp)}</b></div>${prog('Cobrado',T.recS,T.ing)}${prog('Compromisos al día',T.paid,T.fix)}${prog('Gasto del mes (variables)',T.spent,T.bud)}<div style="margin-top:6px;font-size:13px;color:#ffffffe6">${T.libre>=0?'🌿 Tu plan deja '+fmt(T.libre)+' libres este mes':'🌱 Con un pequeño ajuste en variables, el mes cuadra'}</div>${T.disp<0?'<div style="margin-top:4px;font-size:12px;color:#ffffffc0">Tip: suma lo que ya recibiste o el saldo anterior para ver tu disponible real.</div>':''}</div>
   <div class="grid">${kpi('Ingresos esperados',T.ing,'','💵')}${kpi('Compromisos fijos',T.fix,'','📋')}${kpi('Presupuesto variable',T.bud,'','🛒')}${kpi('Saldo libre planeado',T.libre,T.libre<0?'neg':'pos','🌿')}</div>
   <div class="card"><h3>Distribución de ingresos</h3>${donut(groups.concat([['Saldo libre',Math.max(T.libre,0)]]),tot)}</div>
   <div class="card"><h3>Aporte proporcional por persona</h3><table><tr><th>Persona</th><th class="r">Ingreso</th><th class="r">Aporta</th><th class="r">Le queda</th></tr>${share||'<tr><td colspan=4 class="mut">Sin ingresos</td></tr>'}</table>
@@ -257,6 +258,27 @@ consejos(C){const R=advice(C),T=C.T;
   <div class="card"><h3 style="margin-top:0">🎯 Plan sugerido para el saldo libre (${fmt(Math.max(T.libre,0))})</h3>
   ${T.libre>0?`<table><tr><td>🛟 50% fondo de emergencia</td><td class="r">${fmt(T.libre*.5)}</td></tr><tr><td>💳 30% adelantar la deuda más pequeña</td><td class="r">${fmt(T.libre*.3)}</td></tr><tr><td>🎉 20% gustos sin culpa (salidas, antojos)</td><td class="r">${fmt(T.libre*.2)}</td></tr></table>`:'<p class="mut">Este mes no hay saldo libre que repartir.</p>'}</div>
   <p class="mut" style="font-size:12px">Son sugerencias generales calculadas con tus propios números; no reemplazan asesoría financiera profesional.</p>`},
+metas(C){
+  const G=S.goals.filter(g=>g.active),ent=g=>S.gent.find(x=>x.goal_id===g.id&&x.month===S.month),tot=g=>sum(S.gent.filter(x=>x.goal_id===g.id));
+  const sug=goalSug(C).map((x,i)=>({...x,i})).filter(x=>!S.goals.some(g=>g.name===x.name));
+  const done=G.filter(g=>goalState(g)==='ok').length,saved=sum(S.gent.filter(x=>x.month===S.month));
+  return`<div class="card"><div class="row"><h3 style="margin:0">🎯 Metas de ahorro</h3><button class="btn pri sm" onclick="editGoal()">+ Nueva meta</button></div>
+  <p class="mut" style="margin:6px 0 0">${G.length?`Este mes: ${done} de ${G.length} cumplidas · ahorrado ${fmt(saved)}`:'Aún no tienen metas. Elijan una sugerencia o creen la suya.'}</p>
+  ${G.map(g=>{const e=ent(g),st=goalState(g),t=tot(g);return`<div class="goal"><div class="row"><b>${esc(g.emoji||'🎯')} ${esc(g.name)}</b><button class="btn sm" onclick="editGoal('${g.id}')">✎</button></div>
+  ${g.total_target?`<div class="row mut" style="margin-top:6px"><span>Acumulado</span><span>${fmt(t)} de ${fmt(g.total_target)}</span></div><div class="bar"><i style="width:${Math.min(100,t/g.total_target*100)}%;background:var(--ok)"></i></div>`:''}
+  <div class="row" style="margin-top:8px"><span class="mut">Este mes: meta ${fmt(g.monthly_target)}${e?' · ahorrado '+fmt(e.amount):''}</span>
+  <span>${st==='ok'?'<span class="tag paid">✓ Cumplida</span>':st==='part'?'<span class="tag soon">Parcial</span>':''} ${e?`<button class="btn sm" onclick="undoGoal('${e.id}')">Deshacer</button>`:`<button class="btn sm" onclick="goalDone('${g.id}')">✓ Lo logramos</button> <button class="btn sm" onclick="goalOther('${g.id}')">Otro valor</button>`}</span></div></div>`}).join('')}</div>
+  ${sug.length?`<div class="card"><h3 style="margin-top:0">💡 Sugerencias para ustedes</h3>${sug.map(x=>`<div class="ins tip"><b>${x.emoji} ${esc(x.name)}</b><p>${x.why}</p><p style="margin-top:6px"><button class="btn sm" onclick="addSug(${x.i})">Crear esta meta</button></p></div>`).join('')}</div>`:''}
+  <p class="mut" style="font-size:12px">Las metas son un seguimiento: marcar ✓ no mueve plata de sus cuentas.</p>`},
+cierre(C){
+  const mo=new Date(S.month+'T00:00').toLocaleDateString('es-CO',{month:'long',year:'numeric'}),cl=S.clos.filter(c=>c.month===S.month),B=bal(C),names=S.members.map(m=>m.display_name);
+  const R=cierreInfo(C,cl,B);
+  return`<div class="card"><h3 style="margin-top:0;text-transform:capitalize">🗓️ Cierre de ${mo}</h3>
+  <p class="mut" style="margin-top:0">Cada uno escribe cuánto tiene hoy en su cuenta. Ese saldo pasa como inicio del mes siguiente.</p>
+  ${names.map(n=>{const d=cl.find(c=>c.owner===n),b=B.find(x=>x.n===n);return`<label>${esc(n)}</label><input class="money" data-cl="${esc(n)}" inputmode="numeric" autocomplete="off" placeholder="$ 0" value="${d?money(d.balance):''}"><small class="mut">La app calcula ${fmt(b?b.v:0)}</small>`}).join('')}
+  <p><button class="btn pri" onclick="cierreGuardar()">Guardar cierre</button></p></div>
+  ${cl.length?`<div class="card"><h3 style="margin-top:0">${R.label}</h3>${R.items.map(a=>`<div class="ins ${a.lv}"><b>${{ok:'✅',tip:'💡',warn:'🌱'}[a.lv]} ${esc(a.t)}</b><p>${a.x}</p></div>`).join('')}</div>`:''}
+  ${R.diffs.map(d=>`<div class="ins tip"><b>🔎 ${esc(d.n)}: diferencia de ${fmt(Math.abs(d.diff))}</b><p>La app calcula ${fmt(d.calc)} y ${esc(d.n)} dice ${fmt(d.decl)}. ${d.diff<0?'Faltan gastos por registrar.':'Hay dinero que no está registrado.'}</p><p style="margin-top:6px"><button class="btn sm" onclick="cierreAjuste('${esc(d.n)}',${d.diff})">Registrar la diferencia</button></p></div>`).join('')}`},
 ajustes(){return`<div class="card"><h3>Código para tu pareja</h3><p style="font-size:28px;letter-spacing:4px;margin:6px 0"><b>${esc(S.hh.code)}</b></p>
   <p class="mut">Que cree su cuenta en esta misma app y elija “Unirme al hogar” con este código.</p>
   <p>Miembros: ${S.members.map(m=>esc(m.display_name)).join(', ')}</p></div>
@@ -361,6 +383,52 @@ function reserva(C){
 function reservaCard(C){const R=reserva(C);
   return`<div class="card"><h3 style="margin-top:0">🏦 Cuánto guardar de cada ingreso</h3><p class="mut" style="margin-top:0;font-size:13px">Falta pagar ${fmt(R.unpaid)}. Se reparte entre los ingresos que llegan antes de cada fecha de pago; sepáralo apenas te paguen.</p>
   <table><tr><th>Ingreso</th><th class="r">Llega</th><th class="r">Guardar pagos</th><th class="r">Variables</th><th class="r">Libre</th></tr>${R.P.map(p=>{const lib=p.amt-p.res-p.vars;return`<tr><td>${esc(p.i.owner)} · ${esc(p.i.concept)}<br><small class="mut">día ${p.d}${p.r?' · ✓ recibido':''}</small></td><td class="r">${fmt(p.amt)}</td><td class="r"><b>${fmt(p.res)}</b><br><small class="mut">${Math.round(p.res/p.amt*100)}%</small></td><td class="r">${fmt(p.vars)}</td><td class="r ${lib<0?'neg':'pos'}">${fmt(lib)}</td></tr>`}).join('')||'<tr><td class="mut" colspan=5>Sin ingresos</td></tr>'}</table></div>`}
+function goalState(g){const e=S.gent.find(x=>x.goal_id===g.id&&x.month===S.month);if(!e)return'none';return(!g.monthly_target||e.amount>=g.monthly_target)?'ok':'part'}
+function goalSug(C){const T=C.T,ing=T.ing||1,r10=v=>Math.max(10000,Math.round(v/10000)*10000),lib=Math.max(T.libre,0),ess=T.fix-T.ahorro+T.bud,sm=C.fixed.filter(c=>c.kind==='deuda').sort((a,b)=>a.amount-b.amount)[0],A=[];
+  A.push({emoji:'🌱',name:'Ahorro mensual del 10%',monthly:r10(ing*.1),total:null,why:`Separar ${fmt(r10(ing*.1))} al mes (el 10% de sus ingresos) apenas llegue cada pago.`});
+  A.push({emoji:'🛟',name:'Fondo de emergencia',monthly:r10(lib*.5),total:Math.round(ess*3),why:`Tres meses de gastos esenciales son ${fmt(ess*3)}. Con ${fmt(r10(lib*.5))} al mes lo van armando con calma.`});
+  if(sm)A.push({emoji:'💳',name:'Adelantar '+sm.concept,monthly:r10(lib*.3),total:null,why:`Un extra de ${fmt(r10(lib*.3))} al mes para cerrar antes «${esc(sm.concept)}» y liberar ${fmt(sm.amount)} mensuales.`});
+  return A}
+const upGoal=(id,amount)=>run(sb.from('pf_goal_entries').upsert({household_id:H(),goal_id:id,month:S.month,amount},{onConflict:'goal_id,month'}));
+async function goalDone(id){await upGoal(id,S.goals.find(x=>x.id===id).monthly_target);await load();render();toast('🎉 ¡Meta cumplida!')}
+function goalOther(id){const g=S.goals.find(x=>x.id===id);form('Ahorro de este mes: '+esc(g.name),[{k:'amount',l:'Valor ahorrado',t:'money',v:g.monthly_target}],o=>upGoal(id,num(o.amount)))}
+async function undoGoal(id){await run(sb.from('pf_goal_entries').delete().eq('id',id));await load();render()}
+function editGoal(id){const r=S.goals.find(x=>x.id===id)||{name:'',emoji:'🎯',monthly_target:'',total_target:'',active:true};
+  form(id?'Editar meta':'Nueva meta',[{k:'emoji',l:'Emoji',v:r.emoji},{k:'name',l:'Nombre',v:r.name},{k:'monthly_target',l:'Meta de ahorro mensual',t:'money',v:r.monthly_target},{k:'total_target',l:'Meta total (opcional)',t:'money',v:r.total_target},{k:'active',l:'Estado',v:r.active,o:[['true','Activa'],['false','Pausada']]}],
+  o=>run(sb.from('pf_goals').upsert({...(id&&{id}),household_id:H(),emoji:o.emoji||'🎯',name:o.name,monthly_target:num(o.monthly_target),total_target:num(o.total_target)||null,active:o.active==='true'})),id&&(()=>run(sb.from('pf_goals').delete().eq('id',id))))}
+async function addSug(i){const x=goalSug(calc())[i];await run(sb.from('pf_goals').insert({household_id:H(),emoji:x.emoji,name:x.name,monthly_target:x.monthly,total_target:x.total}));await load();render();toast('🎯 Meta creada')}
+function cierrePend(){const d=today.getDate();if(d<5||!S.members.length)return null;const pm=ymd(new Date(today.getFullYear(),today.getMonth()-1,1));return S.clos.filter(c=>c.month===pm).length<S.members.length?pm:null}
+function cierreIr(m){S.month=m;S.tab='cierre';render();scrollTo(0,0)}
+function cierreBanner(){const pm=cierrePend();if(!pm)return'';const nm=new Date(pm+'T00:00').toLocaleDateString('es-CO',{month:'long'});
+  return`<div class="card" style="background:#eaf1ff"><b>🗓️ Cierre de ${nm}</b><p class="mut" style="margin:4px 0 10px">Cuéntenme cuánto quedó en la cuenta de cada uno y les digo cómo estuvo el mes.</p><button class="btn pri sm" onclick="cierreIr('${pm}')">Hacer el cierre</button></div>`}
+async function cierreGuardar(){
+  const rows=[...document.querySelectorAll('[data-cl]')].filter(e=>e.value.trim()).map(e=>({household_id:H(),month:S.month,owner:e.dataset.cl,balance:num(e.value)}));
+  if(!rows.length)return toast('Escribe al menos un saldo');
+  await run(sb.from('pf_closings').upsert(rows,{onConflict:'household_id,month,owner'}));
+  const y=+S.month.slice(0,4),m=+S.month.slice(5,7)-1,nx=ymd(new Date(y,m+1,1));
+  for(const r of rows){await run(sb.from('pf_income_receipts').delete().eq('household_id',H()).is('income_id',null).eq('concept','Saldo inicial').eq('owner',r.owner).eq('month',nx));
+    if(r.balance>0)await run(sb.from('pf_income_receipts').insert({household_id:H(),income_id:null,owner:r.owner,concept:'Saldo inicial',month:nx,amount:r.balance,received_on:nx}))}
+  await load();render();toast('✓ Cierre guardado')}
+async function cierreAjuste(n,diff){const y=+S.month.slice(0,4),m=+S.month.slice(5,7)-1,ld=ymd(new Date(y,m+1,0));
+  if(diff<0)await run(sb.from('pf_expenses').insert({household_id:H(),spent_on:ld,concept:'Ajuste de cierre',amount:-diff,paid_by:n}));
+  else await run(sb.from('pf_income_receipts').insert({household_id:H(),income_id:null,owner:n,concept:'Saldo no registrado',month:S.month,amount:diff,received_on:ld}));
+  await load();render();toast('✓ Diferencia registrada')}
+function cierreInfo(C,cl,B){
+  const T=C.T,items=[],add=(lv,t,x)=>items.push({lv,t,x});
+  const pag=C.fixed.filter(c=>paidOf(c,C.pays)).length,n=C.fixed.length,ip=T.ing?Math.round(T.recS/T.ing*100):0;
+  add(ip>=100?'ok':'tip','Ingresos: cobraron el '+ip+'% de lo esperado',`Recibieron ${fmt(T.recS)} de ${fmt(T.ing)} esperados.`);
+  add(pag===n?'ok':'tip','Compromisos: '+pag+' de '+n+' al día',pag===n?'Todo quedó al día. 👏':'Quedaron pendientes: '+esc(C.fixed.filter(c=>!paidOf(c,C.pays)).map(c=>c.concept).join(', '))+'.');
+  const over=C.vari.map(c=>({c,sp:sum(C.exps.filter(e=>e.commitment_id===c.id))})).filter(o=>o.sp>o.c.amount);
+  add(over.length?'warn':'ok',over.length?'Variables: '+over.length+' categoría(s) pasaron el presupuesto':'Variables: dentro del presupuesto',over.length?over.map(o=>esc(o.c.concept)+': '+fmt(o.sp)+' de '+fmt(o.c.amount)).join(' · '):'Comida y gasolina se mantuvieron en lo planeado.');
+  const sc=sum(C.exps.filter(e=>!e.commitment_id));if(sc>0)add('tip','Gastos fuera de presupuesto: '+fmt(sc),'Son gastos sin categoría (imprevistos, ajustes). Si se repiten, vale la pena darles su propia categoría.');
+  const G=S.goals.filter(g=>g.active),met=G.filter(g=>goalState(g)==='ok'),saved=sum(S.gent.filter(x=>x.month===S.month));
+  add(!G.length?'tip':met.length===G.length?'ok':'tip',G.length?'Metas: '+met.length+' de '+G.length+' cumplidas':'Metas: aún no tienen',G.length?'Ahorraron '+fmt(saved)+' este mes.':'Creen una meta de ahorro en 🎯 Metas para el próximo mes.');
+  const fin=sum(cl.map(c=>({amount:c.balance})));
+  add(fin>0?'ok':'tip','Terminaron con '+fmt(fin)+' en cuentas','Ese saldo pasa como inicio del mes siguiente.');
+  const pts=(pag===n?1:0)+(over.length?0:1)+(G.length&&met.length===G.length?1:0)+(fin>0?1:0);
+  const label=pts>=4?'🌟 Mes excelente':pts===3?'👏 Muy buen mes':pts===2?'🌱 Buen mes, con espacio para mejorar':'💪 Mes retador: ya quedó registrado y el próximo lo mejoramos';
+  const diffs=cl.map(c=>{const b=B.find(x=>x.n===c.owner),cv=b?b.v:0;return{n:c.owner,calc:cv,decl:+c.balance,diff:+c.balance-cv}}).filter(d=>Math.abs(d.diff)>1000);
+  return{items,label,diffs}}
 async function seed(){
   const me=S.me.display_name;
   await run(sb.from('pf_incomes').insert([[me,'Salario quincenal',1731000,[15,30]],[me,'Ingreso día 5',1440000,[5]],[me,'Jamundí',600000,[13]],['Pareja','Salario quincenal',1160000,[15,30]]].map(([owner,concept,amount,pay_days])=>({household_id:H(),owner,concept,amount,pay_days}))));
