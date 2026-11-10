@@ -48,7 +48,7 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const KINDS={deuda:'Deuda / cuota',servicio:'Servicio',ahorro:'Ahorro / cadena',fijo:'Gasto fijo',variable:'Variable (presupuesto)'};
 const ymd=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 const today=new Date();
-let sb=null,S={user:null,hh:null,me:null,members:[],inc:[],com:[],pay:[],exp:[],month:ymd(new Date(today.getFullYear(),today.getMonth(),1)),tab:'resumen',msg:''};
+let sb=null,S={user:null,hh:null,me:null,members:[],inc:[],rec:[],com:[],pay:[],exp:[],month:ymd(new Date(today.getFullYear(),today.getMonth(),1)),tab:'resumen',msg:''};
 
 const DEF={url:'https://pmdkmizxgtncujijttbi.supabase.co',key:'sb_publishable_OPR5iz0QFo94GfiMLwvINQ_4ddlWE2Z'};
 function cfg(){return{url:localStorage.getItem('pf_url')||DEF.url,key:localStorage.getItem('pf_key')||DEF.key}}
@@ -68,8 +68,8 @@ async function boot(){
 }
 async function load(){
   const h=S.hh.id,q=t=>sb.from(t).select('*').eq('household_id',h);
-  const [m,i,c,p,e]=await Promise.all([q('pf_members'),q('pf_incomes').order('owner'),q('pf_commitments').order('amount',{ascending:false}),q('pf_payments'),q('pf_expenses').order('spent_on',{ascending:false})]);
-  S.members=m.data||[];S.inc=i.data||[];S.com=c.data||[];S.pay=p.data||[];S.exp=e.data||[];
+  const [m,i,c,p,e,rc]=await Promise.all([q('pf_members'),q('pf_incomes').order('owner'),q('pf_commitments').order('amount',{ascending:false}),q('pf_payments'),q('pf_expenses').order('spent_on',{ascending:false}),q('pf_income_receipts')]);
+  S.members=m.data||[];S.inc=i.data||[];S.com=c.data||[];S.pay=p.data||[];S.exp=e.data||[];S.rec=rc.data||[];
 }
 const set=(v)=>{$('#app').innerHTML=v};
 
@@ -112,10 +112,11 @@ function calc(){
   const inc=S.inc.filter(x=>x.active),com=S.com.filter(x=>x.active);
   const fixed=com.filter(c=>c.kind!=='variable'),vari=com.filter(c=>c.kind==='variable');
   const pays=S.pay.filter(p=>p.month===S.month),exps=S.exp.filter(e=>e.spent_on.startsWith(mk()));
-  const T={ing:sum(inc),fix:sum(fixed),bud:sum(vari),ahorro:sum(fixed.filter(c=>c.kind==='ahorro')),paid:sum(pays),spent:sum(exps)};
-  T.libre=T.ing-T.fix-T.bud;T.disp=T.ing-T.paid-T.spent;
-  const byOwner={};inc.forEach(i=>byOwner[i.owner]=(byOwner[i.owner]||0)+ +i.amount);
-  return{inc,com,fixed,vari,pays,exps,T,byOwner};
+  const recs=S.rec.filter(r=>r.month===S.month);
+  const T={ing:sum(inc.map(i=>({amount:i.amount*(i.pay_days||[1]).length}))),rec:sum(recs),fix:sum(fixed),bud:sum(vari),ahorro:sum(fixed.filter(c=>c.kind==='ahorro')),paid:sum(pays),spent:sum(exps)};
+  T.libre=T.ing-T.fix-T.bud;T.disp=T.rec-T.paid-T.spent;
+  const byOwner={};inc.forEach(i=>byOwner[i.owner]=(byOwner[i.owner]||0)+i.amount*(i.pay_days||[1]).length);
+  return{inc,com,fixed,vari,pays,exps,recs,T,byOwner};
 }
 const paidOf=(c,pays)=>pays.find(p=>p.commitment_id===c.id);
 
@@ -141,12 +142,12 @@ resumen(C){const T=C.T;
   const groups=Object.keys(KINDS).map(k=>[KINDS[k],sum(C.com.filter(c=>c.kind===k))]).filter(g=>g[1]>0);
   const emp=!S.inc.length&&!S.com.length;
   return(emp?`<div class="card"><b>Aún no hay datos.</b> ¿Cargo tus ingresos y compromisos iniciales (carro, casa Jamundí, Addi, recibos, cadena, comida)?<p><button class="btn pri" onclick="seed()">Cargar datos iniciales</button></p></div>`:'')+
-  `<div class="grid">${kpi('Ingresos del hogar',T.ing)}${kpi('Compromisos fijos',T.fix)}${kpi('Presupuesto variable',T.bud)}${kpi('Saldo libre planeado',T.libre,T.libre<0?'neg':'pos')}</div>
-  <div class="grid">${kpi('Pagado este mes',T.paid)}${kpi('Gastado en variables',T.spent)}${kpi('Disponible hoy',T.disp,T.disp<0?'neg':'pos')}${kpi('Ahorro / cadena',T.ahorro)}</div>
+  `<div class="grid">${kpi('Ingresos esperados',T.ing)}${kpi('Ingresos recibidos',T.rec,'pos')}${kpi('Compromisos fijos',T.fix)}${kpi('Presupuesto variable',T.bud)}</div>
+  <div class="grid">${kpi('Disponible hoy (recibido − pagado)',T.disp,T.disp<0?'neg':'pos')}${kpi('Pagado este mes',T.paid)}${kpi('Gastado en variables',T.spent)}${kpi('Saldo libre planeado',T.libre,T.libre<0?'neg':'pos')}</div>
   <div class="card"><h3>Distribución de ingresos</h3>${groups.concat([['Saldo libre',Math.max(T.libre,0)]]).map(([n,v])=>`<div class="row"><span>${n}</span><span>${fmt(v)} · ${(v/tot*100).toFixed(0)}%</span></div><div class="bar" style="margin:4px 0 10px"><i style="width:${Math.min(100,v/tot*100)}%"></i></div>`).join('')}</div>
   <div class="card"><h3>Aporte proporcional por persona</h3><table><tr><th>Persona</th><th class="r">Ingreso</th><th class="r">%</th><th class="r">Debería cubrir</th></tr>${share||'<tr><td colspan=4 class="mut">Sin ingresos</td></tr>'}</table>
   <p class="mut" style="font-size:13px">“Debería cubrir” reparte compromisos + presupuesto variable según el peso de cada ingreso.</p></div>
-  <div class="card"><h3>Pendientes del mes (${pend.length})</h3><table>${pend.map(c=>`<tr><td>${esc(c.concept)}</td><td class="mut">${c.due_day?'día '+c.due_day:''}</td><td class="r">${fmt(c.amount)}</td><td class="r"><button class="btn sm" onclick="togglePay('${c.id}')">Marcar pagado</button></td></tr>`).join('')||'<tr><td class="pos">Todo pagado ✓</td></tr>'}</table></div>`},
+  ${cobrosCard(C)}<div class="card"><h3>Pagos pendientes del mes (${pend.length})</h3><table>${pend.map(c=>`<tr><td>${esc(c.concept)}</td><td class="mut">${c.due_day?'día '+c.due_day:''}</td><td class="r">${fmt(c.amount)}</td><td class="r"><button class="btn sm" onclick="togglePay('${c.id}')">Marcar pagado</button></td></tr>`).join('')||'<tr><td class="pos">Todo pagado ✓</td></tr>'}</table></div>`},
 compromisos(C){return`<div class="card"><div class="row"><h3 style="margin:0">Compromisos mensuales</h3><button class="btn pri sm" onclick="editCom()">+ Nuevo</button></div>
   <table><tr><th>Concepto</th><th>Tipo</th><th class="r">Monto</th><th>Estado</th><th></th></tr>${C.fixed.map(c=>{const p=paidOf(c,C.pays),late=!p&&c.due_day&&S.month.slice(0,7)===ymd(today).slice(0,7)&&c.due_day<today.getDate();
   return`<tr><td>${esc(c.concept)}${c.due_day?`<br><small class="mut">día ${c.due_day}${c.installments_left?` · ${c.installments_left} cuotas`:''}</small>`:''}</td><td><span class="tag">${KINDS[c.kind]}</span></td><td class="r">${fmt(c.amount)}</td>
@@ -158,9 +159,13 @@ variables(C){return`<div class="card"><div class="row"><h3 style="margin:0">Pres
   return`<div style="margin:12px 0"><div class="row"><b>${esc(c.concept)}</b><span>${fmt(sp)} de ${fmt(c.amount)} <button class="btn sm" onclick="editCom('${c.id}')">✎</button></span></div><div class="bar"><i style="width:${Math.min(100,pc)}%;background:${pc>100?'var(--bad)':pc>80?'var(--warn)':'var(--ok)'}"></i></div></div>`}).join('')||'<p class="mut">Crea una categoría (ej: Comida).</p>'}</div>
   <div class="card"><div class="row"><h3 style="margin:0">Gastos del mes</h3><button class="btn pri sm" onclick="editExp()">+ Gasto</button></div>
   <table>${C.exps.map(e=>{const c=S.com.find(x=>x.id===e.commitment_id);return`<tr><td>${e.spent_on.slice(5)}</td><td>${esc(e.concept)}<br><small class="mut">${esc(c?.concept||'Sin categoría')} · ${esc(e.paid_by||'')}</small></td><td class="r">${fmt(e.amount)}</td><td class="r"><button class="btn sm" onclick="editExp('${e.id}')">✎</button></td></tr>`}).join('')||'<tr><td class="mut">Sin gastos este mes</td></tr>'}</table></div>`},
-ingresos(C){return`<div class="card"><div class="row"><h3 style="margin:0">Ingresos mensuales</h3><button class="btn pri sm" onclick="editInc()">+ Nuevo</button></div>
-  <table><tr><th>Persona</th><th>Concepto</th><th class="r">Monto</th><th></th></tr>${S.inc.map(i=>`<tr style="${i.active?'':'opacity:.5'}"><td>${esc(i.owner)}</td><td>${esc(i.concept)}</td><td class="r">${fmt(i.amount)}</td><td class="r"><button class="btn sm" onclick="editInc('${i.id}')">✎</button></td></tr>`).join('')}
-  <tr><th colspan=2>Total activo</th><th class="r">${fmt(C.T.ing)}</th><th></th></tr></table></div>`},
+ingresos(C){const L=cobros(C),extras=C.recs.filter(r=>!r.income_id);
+  return`<div class="card"><div class="row"><h3 style="margin:0">Cobros del mes</h3><button class="btn pri sm" onclick="addExtra()">+ Ingreso extra / saldo anterior</button></div>
+  <table><tr><th>Ingreso</th><th>Día</th><th class="r">Esperado</th><th class="r">Estado</th></tr>${L.map(x=>`<tr><td>${esc(x.i.owner)} · ${esc(x.i.concept)}</td><td>${x.d}</td><td class="r">${fmt(x.i.amount)}</td><td class="r">${x.r?'':`<span class="tag ${x.late?'late':''}">${x.late?'Debió llegar':'Pendiente'}</span> `}${cobroBtns(x)}</td></tr>`).join('')}
+  ${extras.map(r=>`<tr><td>${esc(r.concept)}</td><td>${r.received_on.slice(8)}</td><td class="r">—</td><td class="r"><span class="tag paid">✓ ${fmt(r.amount)}</span> <button class="btn sm" onclick="undoRec('${r.id}')">Quitar</button></td></tr>`).join('')}
+  <tr><th colspan=2>Total</th><th class="r">${fmt(C.T.ing)}</th><th class="r">Recibido: ${fmt(C.T.rec)}</th></tr></table></div>
+  <div class="card"><div class="row"><h3 style="margin:0">Fuentes de ingreso</h3><button class="btn sm" onclick="editInc()">+ Nueva</button></div>
+  <table>${S.inc.map(i=>`<tr style="${i.active?'':'opacity:.5'}"><td>${esc(i.owner)}</td><td>${esc(i.concept)}<br><small class="mut">días ${(i.pay_days||[]).join(', ')}</small></td><td class="r">${fmt(i.amount)} c/u</td><td class="r"><button class="btn sm" onclick="editInc('${i.id}')">✎</button></td></tr>`).join('')}</table></div>`},
 ajustes(){return`<div class="card"><h3>Código para tu pareja</h3><p style="font-size:28px;letter-spacing:4px;margin:6px 0"><b>${esc(S.hh.code)}</b></p>
   <p class="mut">Que cree su cuenta en esta misma app y elija “Unirme al hogar” con este código.</p>
   <p>Miembros: ${S.members.map(m=>esc(m.display_name)).join(', ')}</p></div>
@@ -179,9 +184,10 @@ function form(title,fields,onSave,onDel){
 }
 const H=()=>S.hh.id,num=v=>+String(v).replace(/[^\d.-]/g,'')||0;
 const run=async p=>{const{error}=await p;if(error)alert(error.message)};
-function editInc(id){const r=S.inc.find(x=>x.id===id)||{owner:S.me.display_name,concept:'',amount:'',active:true};
-  form(id?'Editar ingreso':'Nuevo ingreso',[{k:'owner',l:'Persona',v:r.owner,list:'own'},{k:'concept',l:'Concepto',v:r.concept},{k:'amount',l:'Monto mensual',t:'number',v:r.amount},{k:'active',l:'Estado',v:r.active,o:[['true','Activo'],['false','Inactivo']]}],
-  o=>run(sb.from('pf_incomes').upsert({...(id&&{id}),household_id:H(),owner:o.owner,concept:o.concept,amount:num(o.amount),active:o.active==='true'})),id&&(()=>run(sb.from('pf_incomes').delete().eq('id',id))))}
+const parseDays=v=>{const d=[...new Set(String(v).split(/[,\s]+/).map(Number).filter(n=>n>=1&&n<=31))].sort((a,b)=>a-b);return d.length?d:[30]};
+function editInc(id){const r=S.inc.find(x=>x.id===id)||{owner:S.me.display_name,concept:'',amount:'',pay_days:[30],active:true};
+  form(id?'Editar ingreso':'Nuevo ingreso',[{k:'owner',l:'Persona',v:r.owner,list:'own'},{k:'concept',l:'Concepto',v:r.concept},{k:'amount',l:'Monto por pago',t:'number',v:r.amount},{k:'pay_days',l:'Días de pago del mes (ej: 15,30)',v:(r.pay_days||[30]).join(',')},{k:'active',l:'Estado',v:r.active,o:[['true','Activo'],['false','Inactivo']]}],
+  o=>run(sb.from('pf_incomes').upsert({...(id&&{id}),household_id:H(),owner:o.owner,concept:o.concept,amount:num(o.amount),pay_days:parseDays(o.pay_days),active:o.active==='true'})),id&&(()=>run(sb.from('pf_incomes').delete().eq('id',id))))}
 function editCom(id,kind){const r=S.com.find(x=>x.id===id)||{concept:'',kind:kind||'deuda',amount:'',due_day:'',installments_left:'',active:true};
   form(id?'Editar compromiso':'Nuevo compromiso',[{k:'concept',l:'Concepto',v:r.concept},{k:'kind',l:'Tipo',v:r.kind,o:Object.entries(KINDS)},{k:'amount',l:'Monto mensual / presupuesto',t:'number',v:r.amount},{k:'due_day',l:'Día de pago (opcional)',t:'number',v:r.due_day},{k:'installments_left',l:'Cuotas restantes (opcional)',t:'number',v:r.installments_left},{k:'active',l:'Estado',v:r.active,o:[['true','Activo'],['false','Inactivo']]}],
   o=>run(sb.from('pf_commitments').upsert({...(id&&{id}),household_id:H(),concept:o.concept,kind:o.kind,amount:num(o.amount),due_day:o.due_day?+o.due_day:null,installments_left:o.installments_left?+o.installments_left:null,active:o.active==='true'})),id&&(()=>run(sb.from('pf_commitments').delete().eq('id',id))))}
@@ -193,9 +199,19 @@ async function togglePay(cid){const c=S.com.find(x=>x.id===cid),p=S.pay.find(x=>
   else{await run(sb.from('pf_payments').insert({household_id:H(),commitment_id:cid,month:S.month,amount:c.amount,paid_by:S.me.display_name}));
     if(c.installments_left>0)await run(sb.from('pf_commitments').update({installments_left:c.installments_left-1}).eq('id',cid))}
   await load();render()}
+function cobros(C){const cur=S.month.slice(0,7)===ymd(today).slice(0,7),L=[];
+  C.inc.forEach(i=>(i.pay_days||[1]).forEach(d=>{const r=S.rec.find(x=>x.income_id===i.id&&x.month===S.month&&x.pay_day===d);L.push({i,d,r,late:!r&&cur&&d<=today.getDate()})}));
+  return L.sort((a,b)=>a.d-b.d)}
+const cobroBtns=x=>x.r?`<span class="tag paid">✓ ${fmt(x.r.amount)}</span> <button class="btn sm" onclick="undoRec('${x.r.id}')">Deshacer</button>`:`<button class="btn sm" onclick="receive('${x.i.id}',${x.d})">✓ Me pagaron</button> <button class="btn sm" onclick="receiveOther('${x.i.id}',${x.d})">Otro valor</button>`;
+function cobrosCard(C){const L=cobros(C).filter(x=>!x.r);return`<div class="card"><h3>Por cobrar este mes (${L.length})</h3><table>${L.map(x=>`<tr><td>${esc(x.i.owner)} · ${esc(x.i.concept)}<br><small class="mut">día ${x.d}${x.late?' · ya debió llegar':''}</small></td><td class="r">${fmt(x.i.amount)}</td><td class="r">${cobroBtns(x)}</td></tr>`).join('')||'<tr><td class="pos">Todo cobrado ✓</td></tr>'}</table></div>`}
+const insRec=(i,day,amount,date)=>run(sb.from('pf_income_receipts').insert({household_id:H(),income_id:i.id,concept:i.concept,month:S.month,pay_day:day,amount:num(amount),received_on:date}));
+async function receive(iid,day){await insRec(S.inc.find(x=>x.id===iid),day,S.inc.find(x=>x.id===iid).amount,ymd(today));await load();render()}
+function receiveOther(iid,day){const i=S.inc.find(x=>x.id===iid);form('Me pagaron: '+esc(i.concept),[{k:'amount',l:'Valor recibido',t:'number',v:i.amount},{k:'received_on',l:'Fecha',t:'date',v:ymd(today)}],o=>insRec(i,day,o.amount,o.received_on))}
+async function undoRec(id){await run(sb.from('pf_income_receipts').delete().eq('id',id));await load();render()}
+function addExtra(){form('Ingreso extra / saldo anterior',[{k:'concept',l:'Concepto',v:'Saldo anterior'},{k:'amount',l:'Valor',t:'number',v:''},{k:'received_on',l:'Fecha',t:'date',v:ymd(today)}],o=>run(sb.from('pf_income_receipts').insert({household_id:H(),income_id:null,concept:o.concept,month:S.month,pay_day:null,amount:num(o.amount),received_on:o.received_on})))}
 async function seed(){
   const me=S.me.display_name;
-  await run(sb.from('pf_incomes').insert([[me,'Ingreso principal',3462000],[me,'Ingreso 2',1440000],[me,'Ingreso 3',600000],['Esposa','Ingreso',2400000]].map(([owner,concept,amount])=>({household_id:H(),owner,concept,amount}))));
+  await run(sb.from('pf_incomes').insert([[me,'Salario quincenal',1731000,[15,30]],[me,'Ingreso día 5',1440000,[5]],[me,'Jamundí',600000,[13]],['Pareja','Salario quincenal',1160000,[15,30]]].map(([owner,concept,amount,pay_days])=>({household_id:H(),owner,concept,amount,pay_days}))));
   await run(sb.from('pf_commitments').insert([['Cuota carro','deuda',1820000],['Cuota casa Jamundí','deuda',360000],['Addi','deuda',180000],['Internet hogar','servicio',79000],['Servicios (aprox)','servicio',110000],['Factura Claro','servicio',34000],['Cadena','ahorro',2000000],['Comida','variable',860000]].map(([concept,kind,amount])=>({household_id:H(),concept,kind,amount}))));
   await load();render()}
 if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});
