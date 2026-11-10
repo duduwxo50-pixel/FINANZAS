@@ -55,13 +55,16 @@ main{padding-bottom:96px}[hidden]{display:none!important}
 .sy{font-size:12px;color:var(--mut)}.sy.off{color:var(--bad)}
 .pd{display:flex;justify-content:center;gap:12px;height:28px;margin:12px 0 4px;align-items:center}.pd i{width:14px;height:14px;border-radius:50%;border:2px solid var(--pri)}.pd i.f{background:var(--pri)}
 .kp{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0}.kp button{padding:16px 0;font:600 22px system-ui;border-radius:14px;border:1px solid var(--bd);background:#fff;color:var(--tx);cursor:pointer;touch-action:manipulation}.kp button:active{background:#e9ecf2}.kp button.pri{background:var(--pri);color:#fff;border-color:var(--pri)}
+#fab{pointer-events:auto;position:absolute;right:14px;bottom:calc(8px + env(safe-area-inset-bottom));width:52px;height:52px;border-radius:50%;border:0;background:var(--ok);color:#fff;font-size:30px;line-height:1;box-shadow:0 4px 14px #0005;cursor:pointer}
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:92px;background:#0f2443;color:#fff;padding:10px 18px;border-radius:99px;z-index:30;font-weight:600;box-shadow:0 4px 14px #0005}
 </style>
 </head>
 <body>
 <div id="app"></div>
 <dialog id="dlg"></dialog>
-<div id="bnav" style="display:none"><button id="bn-menu" onclick="menuAbrir()">☰ MENÚ<span class="bdg" id="bn-b" hidden></span></button></div>
+<div id="bnav" style="display:none"><button id="fab" onclick="quickExp()" aria-label="Registrar gasto" title="Registrar gasto">＋</button><button id="bn-menu" onclick="menuAbrir()">☰ MENÚ<span class="bdg" id="bn-b" hidden></span></button></div>
 <div id="menu" hidden></div>
+<div id="toast" hidden></div>
 <script>
 const $=s=>document.querySelector(s);
 const fmt=n=>new Intl.NumberFormat('es-CO',{style:'currency',currency:'COP',maximumFractionDigits:0}).format(+n||0);
@@ -166,7 +169,7 @@ async function sync(manual){
   S.syncing=false;if(S.hh&&!$('#dlg').open)render();
 }
 function menuAbrir(){const bd=S.bd||{};
-  $('#menu').innerHTML=`<button class="mclose" onclick="menuCerrar()">✕</button><div class="mgrid">${MENU.map(([k,i,t])=>`<button class="mcard ${S.tab===k?'on':''}" onclick="irTab('${k}')"><span class="mc">${i}</span><b>${t}</b>${bd[k]?`<span class="bdg">${bd[k]}</span>`:''}</button>`).join('')}
+  $('#menu').innerHTML=`<button class="mclose" onclick="menuCerrar()">✕</button><div class="mgrid"><button class="mcard" onclick="menuCerrar();quickExp()"><span class="mc" style="background:var(--ok)">＋</span><b>Registrar gasto</b></button>${MENU.map(([k,i,t])=>`<button class="mcard ${S.tab===k?'on':''}" onclick="irTab('${k}')"><span class="mc">${i}</span><b>${t}</b>${bd[k]?`<span class="bdg">${bd[k]}</span>`:''}</button>`).join('')}
   <button class="mcard" onclick="menuCerrar();sync(true)"><span class="mc">🔄</span><b>Sincronizar</b></button>
   <button class="mcard" onclick="menuCerrar();sb.auth.signOut()"><span class="mc">🚪</span><b>Salir</b></button></div>`;
   $('#menu').hidden=false}
@@ -191,7 +194,7 @@ resumen(C){const T=C.T;
   const groups=Object.keys(KINDS).map(k=>[KINDS[k],sum(C.com.filter(c=>c.kind===k))]).filter(g=>g[1]>0);
   const emp=!S.inc.length&&!S.com.length;
   return(emp?`<div class="card"><b>Aún no hay datos.</b> ¿Cargo tus ingresos y compromisos iniciales (carro, casa Jamundí, Addi, recibos, cadena, comida)?<p><button class="btn pri" onclick="seed()">Cargar datos iniciales</button></p></div>`:'')+
-  `<div class="card hero"><small>Disponible hoy (recibido − pagado − gastado)</small><b class="${T.disp<0?'neg':'pos'}">${fmt(T.disp)}</b>${prog('Cobrado',T.rec,T.ing)}${prog('Compromisos pagados',T.paid,T.fix)}${prog('Variables gastado',T.spent,T.bud)}</div>
+  `<p><button class="btn pri" style="width:100%;padding:14px;font-size:16px;background:var(--ok);border-color:var(--ok)" onclick="quickExp()">＋ Registrar gasto</button></p><div class="card hero"><small>Disponible hoy (recibido − pagado − gastado)</small><b class="${T.disp<0?'neg':'pos'}">${fmt(T.disp)}</b>${prog('Cobrado',T.rec,T.ing)}${prog('Compromisos pagados',T.paid,T.fix)}${prog('Variables gastado',T.spent,T.bud)}</div>
   <div class="grid">${kpi('Ingresos esperados',T.ing)}${kpi('Compromisos fijos',T.fix)}${kpi('Presupuesto variable',T.bud)}${kpi('Saldo libre planeado',T.libre,T.libre<0?'neg':'pos')}</div>
   <div class="card"><h3>Distribución de ingresos</h3>${donut(groups.concat([['Saldo libre',Math.max(T.libre,0)]]),tot)}</div>
   <div class="card"><h3>Aporte proporcional por persona</h3><table><tr><th>Persona</th><th class="r">Ingreso</th><th class="r">%</th><th class="r">Debería cubrir</th></tr>${share||'<tr><td colspan=4 class="mut">Sin ingresos</td></tr>'}</table>
@@ -258,6 +261,23 @@ async function receive(iid,day){await insRec(S.inc.find(x=>x.id===iid),day,S.inc
 function receiveOther(iid,day){const i=S.inc.find(x=>x.id===iid);form('Me pagaron: '+esc(i.concept),[{k:'amount',l:'Valor recibido',t:'number',v:i.amount},{k:'received_on',l:'Fecha',t:'date',v:ymd(today)}],o=>insRec(i,day,o.amount,o.received_on))}
 async function undoRec(id){await run(sb.from('pf_income_receipts').delete().eq('id',id));await load();render()}
 function addExtra(){form('Ingreso extra / saldo anterior',[{k:'concept',l:'Concepto',v:'Saldo anterior'},{k:'amount',l:'Valor',t:'number',v:''},{k:'received_on',l:'Fecha',t:'date',v:ymd(today)}],o=>run(sb.from('pf_income_receipts').insert({household_id:H(),income_id:null,concept:o.concept,month:S.month,pay_day:null,amount:num(o.amount),received_on:o.received_on})))}
+const CHIPS=['Restaurante','Mercado','Gasolina','Domicilio','Gasto hormiga','Salida'];
+function toast(t){const e=$('#toast');e.textContent=t;e.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>e.hidden=true,2500)}
+function quickExp(){
+  const d=$('#dlg'),vars=S.com.filter(c=>c.kind==='variable'&&c.active),names=[...new Set(S.members.map(m=>m.display_name))];
+  d.innerHTML=`<form method="dialog" onsubmit="return false"><h3 style="margin-top:0">＋ Registrar gasto</h3>
+  <label>Valor</label><input name="amount" id="qa" type="number" inputmode="numeric" placeholder="0" style="font-size:24px">
+  <label>¿En qué?</label><input name="concept" id="qc" placeholder="Ej: almuerzo, mercado…">
+  <div style="margin:8px 0;display:flex;gap:6px;flex-wrap:wrap">${CHIPS.map(c=>`<button type="button" class="btn sm" onclick="$('#qc').value='${c}'">${c}</button>`).join('')}</div>
+  <label>Categoría</label><select name="commitment_id"><option value="">Sin categoría</option>${vars.map(c=>`<option value="${c.id}">${esc(c.concept)}</option>`).join('')}</select>
+  <label>Pagó</label><select name="paid_by">${names.map(n=>`<option ${n===S.me.display_name?'selected':''}>${esc(n)}</option>`).join('')}</select>
+  <label>Fecha</label><input name="spent_on" type="date" value="${ymd(today)}">
+  <div class="row" style="margin-top:16px"><button type="button" class="btn" id="cx">Cancelar</button><button type="button" class="btn pri" id="ok">Guardar gasto</button></div></form>`;
+  d.showModal();$('#cx').onclick=()=>d.close();
+  $('#ok').onclick=async()=>{const o={};d.querySelectorAll('[name]').forEach(e=>o[e.name]=e.value);const amt=num(o.amount);if(!amt)return $('#qa').focus();
+    await run(sb.from('pf_expenses').insert({household_id:H(),spent_on:o.spent_on,concept:o.concept||'Gasto',amount:amt,commitment_id:o.commitment_id||null,paid_by:o.paid_by}));
+    d.close();await load();render();toast('✓ Gasto registrado: '+fmt(amt))};
+}
 async function seed(){
   const me=S.me.display_name;
   await run(sb.from('pf_incomes').insert([[me,'Salario quincenal',1731000,[15,30]],[me,'Ingreso día 5',1440000,[5]],[me,'Jamundí',600000,[13]],['Pareja','Salario quincenal',1160000,[15,30]]].map(([owner,concept,amount,pay_days])=>({household_id:H(),owner,concept,amount,pay_days}))));
